@@ -5,7 +5,7 @@ import { card, statusBadge, empty, kv, meter, openModal, toast, alertBox, field,
 import { onAction, onSubmit, onLive, readForm, showErrors } from '../ui/actions.js';
 import { getState, update, loanStates, loanById, loanState, today, logActivity } from '../data/store.js';
 import { money, money0, fmtDate, ratePct, pct, durationLabel, daysBetween, addDays, addMonths, uid, parseMoneyInput, dollarsInput, yearOf } from '../core/util.js';
-import { payoffQuote, hasBalloon } from '../core/servicing.js';
+import { payoffQuoteOn, hasBalloon, escrowMonthlyAt } from '../core/servicing.js';
 import { METHODS, propertyFacts } from './shared.js';
 
 export const borrowerPickerView = {
@@ -63,7 +63,7 @@ export const borrowerView = {
           </div>`}
           ${card({ title: 'Your loan', body: html`
             <div class="grid g-2" style="gap:20px">
-              ${kv([['Principal balance', money(st.principalBalance)], ['Interest rate', `${ratePct(loan.terms.ratePct)} fixed`], ['Monthly payment', `${money(st.payment)} + ${money(loan.escrow?.enabled ? loan.escrow.monthly : 0)} escrow`], ['Paid through', st.paidThrough ? fmtDate(st.paidThrough) : '—']], 'one rows')}
+              ${kv([['Principal balance', money(st.principalBalance)], ['Interest rate', `${ratePct(loan.terms.ratePct)} fixed`], ['Monthly payment', loan.escrow?.enabled ? `${money(st.payment)} + ${money(st.nextInstallment ? st.nextInstallment.escrow : escrowMonthlyAt(loan, today()))} escrow` : money(st.payment)], ['Paid through', st.paidThrough ? fmtDate(st.paidThrough) : '—']], 'one rows')}
               ${kv([['Original amount', money0(loan.terms.principal)], ['Started', fmtDate(loan.terms.closingDate)], [hasBalloon(loan.terms) ? 'Balloon due' : 'Final payment', `${fmtDate(st.maturityDate)}${st.balloon ? ` · ${money0(st.balloon.total)}` : ''}`], [`Interest paid in ${y}`, money(st.years[String(y)]?.interest || 0)]], 'one rows')}
             </div>
             <div class="mt-3"><div class="spread mb-1"><span class="small strong">You’ve paid off ${pct(paidDown, 1)}</span><span class="small muted">${money0(loan.terms.principal - st.principalBalance)} of ${money0(loan.terms.principal)}</span></div>
@@ -80,7 +80,7 @@ export const borrowerView = {
         <div class="stack-lg">
           ${card({ title: 'Documents', body: html`<div class="stack-sm">
             ${!st.paidOffDate ? html`<a class="doc-item" href="#/doc/statement/${loan.id}" target="_blank" rel="noopener"><span class="dicon">${ic('file', { size: 18 })}</span><span><strong>Current statement</strong><span>${st.nextInstallment ? `For ${fmtDate(st.nextInstallment.due, 'month')}` : ''}</span></span></a>` : ''}
-            <a class="doc-item" href="#/doc/interest/${loan.id}?year=${y - 1}" target="_blank" rel="noopener"><span class="dicon">${ic('landmark', { size: 18 })}</span><span><strong>${y - 1} interest statement</strong><span>For Schedule A</span></span></a>
+            ${yearOf(loan.terms.closingDate || loan.terms.firstDue) <= y - 1 ? html`<a class="doc-item" href="#/doc/interest/${loan.id}?year=${y - 1}" target="_blank" rel="noopener"><span class="dicon">${ic('landmark', { size: 18 })}</span><span><strong>${y - 1} interest statement</strong><span>For Schedule A</span></span></a>` : html`<a class="doc-item" href="#/doc/interest/${loan.id}?year=${y}" target="_blank" rel="noopener"><span class="dicon">${ic('landmark', { size: 18 })}</span><span><strong>${y} interest to date</strong><span>Your first statement comes next January</span></span></a>`}
             <a class="doc-item" href="#/doc/schedule/${loan.id}" target="_blank" rel="noopener"><span class="dicon">${ic('calendar', { size: 18 })}</span><span><strong>Payment schedule</strong><span>Every payment through ${fmtDate(st.maturityDate, 'month')}</span></span></a>
           </div>` })}
           ${st.paidOffDate ? '' : card({ title: 'Payoff amount', sub: 'Refinancing or selling? Get your exact payoff.', body: html`<form data-live="b-payoff" data-id="${loan.id}" onsubmit="return false">
@@ -95,7 +95,7 @@ export const borrowerView = {
 };
 
 function payoffBlock(loan, date) {
-  const q = payoffQuote(loan, loanState(loan.id), date);
+  const q = payoffQuoteOn(loan, date, today());
   return html`<div class="big-number" style="font-size:1.8rem">${money(q.total)}</div><p class="small muted mb-0">Good through ${fmtDate(date)}: ${money(q.principal)} principal + ${money(q.interest)} interest${q.fees ? ` + ${money(q.fees)} charges` : ''}. Adds ${money(Math.round(q.perDiem))} per day after that.</p><a class="btn btn-ghost btn-sm mt-1" href="#/doc/payoff/${loan.id}?date=${date}" target="_blank" rel="noopener">${ic('printer', { size: 15 })} Payoff letter</a>`;
 }
 

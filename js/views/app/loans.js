@@ -54,7 +54,7 @@ export const loansView = {
           <td>${l.property.address}<span class="cell-sub">${l.property.city}, ${l.property.state}</span></td>
           <td class="num">${x.paidOffDate ? '—' : money0(x.principalBalance)}</td>
           <td class="num">${ratePct(l.terms.ratePct)}</td>
-          <td class="num">${money(x.payment)}${l.escrow?.enabled ? html`<span class="cell-sub">+ ${money(l.escrow.monthly)} escrow</span>` : ''}</td>
+          <td class="num">${money(x.payment)}${l.escrow?.enabled && x.nextInstallment ? html`<span class="cell-sub">+ ${money(x.nextInstallment.escrow)} escrow</span>` : ''}</td>
           <td class="nowrap">${x.paidOffDate ? html`<span class="muted">Paid off ${fmtDate(x.paidOffDate)}</span>` : x.nextInstallment ? fmtDate(x.nextInstallment.due) : '—'}</td>
           <td>${statusBadge(x.status)}</td></tr>`;
       })}</tbody></table></div></div>` : html`<div class="card">${empty({ icon: 'file', title: 'No loans here', text: 'Board a note you already hold, or close a deal to start servicing.', action: html`<a class="btn btn-primary" href="#/app/loans/new">Board an existing note</a>` })}</div>`}`;
@@ -182,7 +182,7 @@ onSubmit({
         plan: escrowOn ? 'complete' : 'essentials',
         borrower: { name: v.name.trim(), first: v.name.trim().split(/\s+/)[0], email: v.email.trim(), phone: v.phone.trim(), tinOnFile: false },
         property: { address: v.address.trim(), city: v.city.trim(), state: v.state, zip: v.zip.trim(), type: v.type, occupancy: v.occupancy, hue: Math.floor(Math.random() * 360) },
-        terms: { salePrice: price, downPayment: down, principal, ratePct: rate, rateType: 'fixed', amortMonths: amort, balloonMonths: balloon, closingDate: v.closingDate, firstDue: v.firstDue, payment: pmt(principal, rate, amort), graceDays: Math.round(parseNum(v.graceDays, 15)), lateFee: { type: 'pct', pct: parseNum(v.lateFeePct, 5) }, escrow: escrowOn, boardedPaid: paid },
+        terms: { salePrice: price, downPayment: down, principal, ratePct: rate, rateType: 'fixed', amortMonths: amort, balloonMonths: balloon, closingDate: v.closingDate, firstDue: v.firstDue, payment: pmt(principal, rate, amort), graceDays: Math.max(0, Math.round(parseNum(v.graceDays, 15))), lateFee: { type: 'pct', pct: parseNum(v.lateFeePct, 5) }, escrow: escrowOn, boardedPaid: paid },
         escrow: escrowOn ? { enabled: true, monthly: Math.round((taxes + ins) / 12), startBalance: parseMoneyInput(v.escrowBalance), taxesAnnual: taxes, insuranceAnnual: ins, taxDueMonths: [4, 10], insuranceMonth: +v.closingDate.slice(5, 7) } : { enabled: false },
         autopay: { enabled: false, invited: !!v.invite },
         insurance: null,

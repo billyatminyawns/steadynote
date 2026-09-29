@@ -4,7 +4,7 @@ import { ic, LOGO_MARK } from '../ui/icons.js';
 import { onAction } from '../ui/actions.js';
 import { getState, loanById, loanState, appById, dealById, today } from '../data/store.js';
 import { money, money0, fmtDate, ratePct, durationLabel, addDays, yearOf, pct } from '../core/util.js';
-import { payoffQuote, hasBalloon, escrowAnalysis, computeLoan } from '../core/servicing.js';
+import { payoffQuoteOn, hasBalloon, escrowAnalysis, escrowMonthlyAt, computeLoan } from '../core/servicing.js';
 import { interestStatement } from '../core/tax.js';
 import { analyzeApplication } from '../core/qualify.js';
 import { applicantNames } from './app/deals.js';
@@ -75,7 +75,7 @@ const DOCS = {
         ${loan.release ? html`<p>A ${loan.release.document.toLowerCase()} was recorded on ${fmtDate(loan.release.recordedAt)} (${loan.release.county}).</p>` : html`<p>The lien release is being prepared for recording.</p>`}
         <p>Thank you for your payments. ${sellerShort()}</p>${footer()}`;
     }
-    const p = payoffQuote(loan, st, date);
+    const p = payoffQuoteOn(loan, date, today());
     return html`${letterhead('Payoff statement', `Good through ${fmtDate(date, 'long')}`)}
       ${toBorrower(loan)}${loanLine(loan)}
       <table><tbody>
@@ -96,6 +96,9 @@ const DOCS = {
     const s = interestStatement(loan, year);
     const p = getState().profile;
     const cur = year >= yearOf(today());
+    if (!s.started) {
+      return html`${letterhead(`${year} mortgage interest statement`, 'Seller-financed loan')}${loanLine(loan)}<p>No statement for ${year}: this loan began ${fmtDate(loan.terms.closingDate || loan.terms.firstDue, 'long')}, so no interest was paid that year.</p>${footer()}`;
+    }
     return html`${letterhead(`${year} mortgage interest statement${cur ? ' (year to date)' : ''}`, 'Seller-financed loan: for your federal income tax records')}
       <div class="doc-cols">
         <div><h2>Recipient / lender</h2><p>${seller()}<br>${p.city ? `${p.city}, ${p.state}` : ''}<br>TIN: provided securely on request</p></div>
@@ -121,7 +124,18 @@ const DOCS = {
     return html`${letterhead('Amortization schedule', `${loan.number} · ${money0(loan.terms.principal)} at ${ratePct(loan.terms.ratePct)} over ${durationLabel(loan.terms.amortMonths)}${hasBalloon(loan.terms) ? `, balloon after ${durationLabel(loan.terms.balloonMonths)}` : ''}`)}
       ${loanLine(loan)}
       <table><thead><tr><th class="num">#</th><th>Due</th><th class="num">Payment</th><th class="num">Interest</th><th class="num">Principal</th><th class="num">Balance</th><th>Status</th></tr></thead>
-      <tbody>${(() => { let b = loan.terms.principal; return rows.map((r) => { b -= r.principal; return html`<tr><td class="num">${r.n}</td><td>${fmtDate(r.due)}</td><td class="num">${money(r.pi)}</td><td class="num">${money(r.interest)}</td><td class="num">${money(r.principal)}</td><td class="num">${money(Math.max(0, b))}</td><td>${r.done ? `Paid ${fmtDate(r.paidDate, 'numeric')}` : r.balloon ? 'Balloon' : ''}</td></tr>`; }); })()}</tbody></table>
+      <tbody>${(() => {
+        // Paid rows show the actual balance after each payment (which reflects
+        // any extra principal); future rows project from today's balance.
+        let b = st.principalBalance;
+        return rows.map((r) => {
+          let after;
+          if (r.done) after = r.balanceAfter;
+          else { b -= r.principal; after = b; }
+          return html`<tr><td class="num">${r.n}</td><td>${fmtDate(r.due)}</td><td class="num">${money(r.pi)}</td><td class="num">${money(r.interest)}</td><td class="num">${money(r.principal)}</td><td class="num">${money(Math.max(0, after))}</td><td>${r.done ? `Paid ${fmtDate(r.paidDate, 'numeric')}` : r.balloon ? 'Balloon' : ''}</td></tr>`;
+        });
+      })()}</tbody></table>
+      ${st.paidOffDate ? html`<p>Paid in full on ${fmtDate(st.paidOffDate, 'long')}.</p>` : ''}
       ${footer('Future rows assume on-time payment of the scheduled amount. ')}`;
   },
 
@@ -138,7 +152,7 @@ const DOCS = {
         <tr><td>Interest rate</td><td class="num">${ratePct(t.ratePct)} fixed</td></tr>
         <tr><td>Amortization</td><td class="num">${durationLabel(t.amortMonths)}</td></tr>
         <tr><td>Monthly principal & interest</td><td class="num">${money(st.payment)}</td></tr>
-        ${loan.escrow?.enabled ? html`<tr><td>Monthly escrow (initial)</td><td class="num">${money(loan.escrow.monthly)}</td></tr>` : ''}
+        ${loan.escrow?.enabled ? html`<tr><td>Monthly escrow (current)</td><td class="num">${money(escrowMonthlyAt(loan, st.nextInstallment ? st.nextInstallment.due : today()))}</td></tr>` : ''}
         <tr><td>First payment date</td><td class="num">${fmtDate(t.firstDue)}</td></tr>
         <tr><td>${hasBalloon(t) ? 'Balloon payment due' : 'Maturity date'}</td><td class="num">${fmtDate(st.maturityDate)}</td></tr>
         <tr><td>Grace period / late charge</td><td class="num">${st.grace} days / ${t.lateFee?.pct ?? 5}% of P&I (${money(st.lateFee)})</td></tr>

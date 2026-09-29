@@ -12,7 +12,7 @@ export const calculatorView = {
   nav: 'calculator',
   title: 'Seller-financing calculator',
   render() {
-    draft = draft || blankDeal();
+    draft = draft || { ...blankDeal(), sellerOverride: { entityType: 'individual', financedLast12: 0 } };
     return html`
     <section class="section tight">
       <div class="container">
@@ -35,8 +35,9 @@ onSubmit({
     draft = d;
     const id = uid('deal');
     update((s) => {
+      const { sellerOverride, ...rest } = d;
       s.deals.unshift({
-        ...d,
+        ...rest,
         id,
         code: null,
         status: 'draft',

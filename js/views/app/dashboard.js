@@ -145,7 +145,7 @@ export const dashboardView = {
               const x = st[l.id];
               return html`<tr><td><a class="cell-main" href="#/app/loans/${l.id}">${l.borrower.name}</a><span class="cell-sub">${l.number} · ${l.property.address}, ${l.property.city}</span></td>
                 <td class="num">${x.paidOffDate ? '—' : money0(x.principalBalance)}</td>
-                <td class="num">${x.paidOffDate ? '—' : money(x.payment + (l.escrow?.enabled ? l.escrow.monthly : 0))}</td>
+                <td class="num">${x.paidOffDate ? '—' : money(x.nextInstallment ? x.nextInstallment.total : x.payment)}</td>
                 <td class="nowrap">${x.paidOffDate ? fmtDate(x.paidOffDate) : x.nextInstallment ? html`${fmtDate(x.nextInstallment.due)}${l.autopay?.enabled ? html` <span title="Autopay" class="muted">${ic('repeat', { size: 14 })}<span class="sr-only">autopay</span></span>` : ''}` : '—'}</td>
                 <td>${statusBadge(x.status)}</td></tr>`;
             })}</tbody></table></div>` })}

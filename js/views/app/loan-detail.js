@@ -6,7 +6,7 @@ import { onAction, onSubmit, onLive, readForm, showErrors } from '../../ui/actio
 import { lineChart, legend } from '../../ui/charts.js';
 import { getState, update, loanById, loanState, today, logActivity } from '../../data/store.js';
 import { money, money0, moneyCompact, fmtDate, ratePct, durationLabel, pct, addDays, addMonths, daysBetween, uid, parseMoneyInput, dollarsInput, yearOf } from '../../core/util.js';
-import { payoffQuote, previewTransaction, escrowAnalysis, hasBalloon, installmentCount, STATUS } from '../../core/servicing.js';
+import { payoffQuoteOn, previewTransaction, escrowAnalysis, escrowMonthlyAt, hasBalloon, installmentCount, STATUS } from '../../core/servicing.js';
 import { automationFeed, RULES } from '../../core/automations.js';
 import { PROPERTY_TYPES } from '../../core/compliance.js';
 import { planOf, planPrice } from '../../core/pricing.js';
@@ -55,7 +55,7 @@ function overview(loan, st) {
   const t = loan.terms;
   const paidDown = t.principal ? (1 - st.principalBalance / t.principal) * 100 : 0;
   const m = st.nextInstallment;
-  const escrowAmt = loan.escrow?.enabled ? loan.escrow.monthly : 0;
+  const escrowAmt = loan.escrow?.enabled ? (m ? m.escrow : escrowMonthlyAt(loan, today())) : 0;
   const ins = loan.insurance;
   const insLeft = ins?.expires ? daysBetween(today(), ins.expires) : null;
   return html`
@@ -177,7 +177,7 @@ function documents(loan, st) {
   const docs = [
     !st.paidOffDate && { href: `#/doc/statement/${loan.id}`, icon: 'file', title: 'Monthly statement', sub: st.nextInstallment ? `For the ${fmtDate(st.nextInstallment.due)} payment` : '' },
     { href: `#/doc/payoff/${loan.id}?date=${addDays(today(), 10)}`, icon: 'receipt', title: 'Payoff statement', sub: st.paidOffDate ? `Final payoff ${fmtDate(st.paidOffDate)}` : `Good through ${fmtDate(addDays(today(), 10))}` },
-    { href: `#/doc/interest/${loan.id}?year=${y - 1}`, icon: 'landmark', title: `${y - 1} interest statement`, sub: 'For your return and the buyer’s' },
+    yearOf(loan.terms.closingDate || loan.terms.firstDue) <= y - 1 && { href: `#/doc/interest/${loan.id}?year=${y - 1}`, icon: 'landmark', title: `${y - 1} interest statement`, sub: 'For your return and the buyer’s' },
     { href: `#/doc/interest/${loan.id}?year=${y}`, icon: 'landmark', title: `${y} interest to date`, sub: 'Year-to-date summary' },
     { href: `#/doc/schedule/${loan.id}`, icon: 'calendar', title: 'Amortization schedule', sub: `${st.installments} installments` },
     { href: `#/doc/terms/${loan.id}`, icon: 'file', title: 'Loan terms summary', sub: 'One page for your records' },
@@ -209,8 +209,8 @@ export const loanDetailView = {
     const loan = loanById(ctx.params.id);
     if (!loan) return card({ body: empty({ icon: 'file', title: 'Loan not found', action: html`<a class="btn btn-primary" href="#/app/loans">Back to loans</a>` }) });
     const st = loanState(loan.id);
-    const tab = ctx.params.tab || 'overview';
-    const body = { overview, payments, schedule, escrow: escrowTab, documents, activity }[tab] || overview;
+    const tab = ctx.params.tab === 'escrow' && !loan.escrow?.enabled ? 'overview' : ctx.params.tab || 'overview';
+    const body = (tab === 'escrow' && !loan.escrow?.enabled ? null : { overview, payments, schedule, escrow: escrowTab, documents, activity }[tab]) || overview;
     return html`
     <nav class="crumbs" aria-label="Breadcrumb"><a href="#/app/loans">Loans</a>${ic('chevronRight', { size: 14 })}<span>${loan.number}</span></nav>
     <div class="page-head">
@@ -219,7 +219,7 @@ export const loanDetailView = {
         <div><div class="title-row"><h1>${loan.borrower.name}</h1>${statusBadge(st.status)}${loan.autopay?.enabled && !st.paidOffDate ? badge('brand', 'Autopay', 'repeat') : ''}</div>
         <p>${loan.number} · ${loan.property.address}, ${loan.property.city}, ${loan.property.state}</p></div>
       </div>
-      ${st.paidOffDate ? '' : html`<div class="btn-row wrap">
+      ${st.paidOffDate && !st.feesOutstanding ? '' : html`<div class="btn-row wrap">
         <button type="button" class="btn btn-primary" data-action="record-payment" data-id="${loan.id}">${ic('plus', { size: 16 })} Record payment</button>
         <button type="button" class="btn btn-secondary" data-action="payoff-quote" data-id="${loan.id}">${ic('receipt', { size: 16 })} Payoff quote</button>
         <button type="button" class="btn btn-ghost" data-action="loan-more" data-id="${loan.id}" aria-label="More actions">${ic('moreH')}<span class="hide-sm">More</span></button>
@@ -279,7 +279,7 @@ onLive({
   'pay-form': (form, e) => {
     const loan = loanById(form.dataset.id);
     if (e && e.target.name === 'applyTo' && e.target.value === 'payoff') {
-      const q = payoffQuote(loan, loanState(loan.id), form.elements.date.value || today());
+      const q = payoffQuoteOn(loan, form.elements.date.value || today(), today());
       form.elements.amount.value = dollarsInput(q.total);
     }
     paymentPreview(form, loan);
@@ -289,7 +289,7 @@ onLive({
     const d = form.elements.date.value;
     const out = form.querySelector('[data-payoff]');
     if (!d) return;
-    const q = payoffQuote(loan, loanState(loan.id), d);
+    const q = payoffQuoteOn(loan, d, today());
     out.innerHTML = String(payoffTable(q, loan));
   },
 });
@@ -333,7 +333,7 @@ onAction({
   'payoff-quote': (el) => {
     const loan = loanById(el.dataset.id);
     const d = addDays(today(), 10);
-    const q = payoffQuote(loan, loanState(loan.id), d);
+    const q = payoffQuoteOn(loan, d, today());
     openModal({
       title: 'Payoff quote',
       body: `<form data-live="payoff-form" data-id="${loan.id}" onsubmit="return false">
@@ -418,7 +418,7 @@ onAction({
     openModal({
       title: 'Add a note',
       size: 'sm',
-      body: `<form data-form="loan-note" data-id="${loan.id}" id="note-form">${field({ label: 'Note', name: 'text', type: 'textarea', rows: 4 })}</form>`,
+      body: `<form data-form="loan-note" data-id="${loan.id}" id="note-form">${field({ label: 'Note', name: 'text', id: 'f-note-modal', type: 'textarea', rows: 4 })}</form>`,
       footer: `<button type="button" class="btn btn-secondary" data-action="modal-close">Cancel</button><button type="submit" form="note-form" class="btn btn-primary">Save</button>`,
     });
   },
@@ -490,7 +490,6 @@ onAction({
       const st = loanState(l.id);
       const eff = st.nextInstallment ? st.nextInstallment.due : today();
       l.escrow.changes = [...(l.escrow.changes || []), { effective: eff, monthly: amt }];
-      l.escrow.monthly = l.escrow.monthly;
       logActivity(`Escrow payment changed to ${money(amt)} effective ${fmtDate(eff)}`, `#/app/loans/${l.id}/escrow`);
     });
     toast('New escrow payment scheduled. The borrower will be notified.');

@@ -46,6 +46,7 @@ export function interestStatement(loan, year) {
   const st = computeLoan(loan, end);
   const prev = computeLoan(loan, `${year - 1}-12-31`);
   const y = st.years[String(year)] || { interest: 0, principal: 0, taxesPaid: 0, insurancePaid: 0, fees: 0, received: 0, escrowIn: 0, escrowOut: 0 };
+  // A loan boarded mid-life still has history before it joined SteadyNote.
   const started = (loan.terms.closingDate || loan.terms.firstDue) <= end;
   return {
     year,

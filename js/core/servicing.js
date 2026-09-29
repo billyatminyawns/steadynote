@@ -129,7 +129,9 @@ export function computeLoan(loan, asOf) {
   const hasDue = (date) => S.next <= N && due(S.next) <= date;
 
   // Installments paid before the loan was boarded onto the platform.
-  const boarded = Math.min(t.boardedPaid || 0, N);
+  const boardedAll = Math.min(t.boardedPaid || 0, N);
+  let boarded = 0;
+  while (boarded < boardedAll && due(boarded + 1) <= asOf) boarded++;
   for (let k = 1; k <= boarded; k++) {
     const m = makeInstallment(loan, k, S.bal);
     m.escrow = 0;
@@ -205,7 +207,10 @@ export function computeLoan(loan, asOf) {
         if (S.bal === 0) S.paidOffDate ||= tx.date;
         if (avail > 0) { S.credit += avail; alloc.credit += avail; }
       } else if (tx.applyTo === 'principal' && !hasDue(tx.date)) {
-        toPrincipal(tx.date, avail, alloc);
+        // Borrower-directed principal payment: only this payment's funds.
+        S.suspense = alloc.fromSuspense;
+        alloc.fromSuspense = 0;
+        toPrincipal(tx.date, tx.amount, alloc);
       } else {
         // Regular payment: satisfy installments that are due (or come due
         // within the next month) oldest-first.
@@ -222,7 +227,12 @@ export function computeLoan(loan, asOf) {
           avail -= m.total;
           applied++;
         }
-        if (blockedOn) {
+        if (blockedOn && blockedOn.due > tx.date && applied > 0) {
+          // Paid what was due plus extra: the extra is a curtailment, not a
+          // partial payment toward next month.
+          avail = payFees(tx.date, avail, alloc);
+          toPrincipal(tx.date, avail, alloc);
+        } else if (blockedOn) {
           // Short of a full installment. If that installment is not yet due,
           // settle outstanding charges first; the rest waits in suspense.
           if (blockedOn.due > tx.date) avail = payFees(tx.date, avail, alloc);
@@ -365,6 +375,13 @@ export function payoffQuote(loan, st, date) {
     escrowRefund: Math.max(0, st.escrowBalance),
     total: Math.max(0, total),
   };
+}
+
+// Payoff quote using the loan's state on the payoff date itself, so late
+// charges that will be assessed before then are included.
+export function payoffQuoteOn(loan, date, asOf) {
+  const at = date > asOf ? date : asOf;
+  return payoffQuote(loan, computeLoan(loan, at), date);
 }
 
 export const withTransactions = (loan, txs) => ({ ...loan, transactions: [...(loan.transactions || []), ...txs] });

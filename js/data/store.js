@@ -4,6 +4,7 @@
 import { buildSeed, emptyWorkspace, SCHEMA_VERSION } from './seed.js';
 import { localToday, addDays, daysBetween } from '../core/util.js';
 import { computeLoan, pendingAutopay } from '../core/servicing.js';
+import { ruleOn } from '../core/automations.js';
 
 const KEY = 'steadynote:workspace';
 let state = null;
@@ -29,9 +30,33 @@ export function initStore() {
   }
   const stale = s && s.demo && !s.dirty && s.seededOn !== real;
   if (!s || s.version !== SCHEMA_VERSION || stale) s = buildSeed(real);
-  state = s;
+  state = normalize(s);
   runAutopay();
   persist();
+  // Another tab (e.g. the buyer application opened from a listing) saved
+  // changes: adopt them so this tab doesn't overwrite them later.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== KEY || !e.newValue) return;
+    try {
+      state = normalize(JSON.parse(e.newValue));
+      version++;
+      emit();
+    } catch { /* ignore malformed writes */ }
+  });
+}
+
+// Fill in anything missing so older or hand-edited workspaces still load.
+function normalize(s) {
+  const base = buildSeed(localToday());
+  for (const k of ['deals', 'applications', 'loans', 'activity']) if (!Array.isArray(s[k])) s[k] = [];
+  s.profile = { ...base.profile, name: '', first: '', entityName: '', ...(s.profile || {}) };
+  s.settings = { ...base.settings, ...(s.settings || {}) };
+  s.settings.market = { ...base.settings.market, ...(s.settings.market || {}) };
+  s.settings.afr = { ...base.settings.afr, ...(s.settings.afr || {}) };
+  s.settings.defaults = { ...base.settings.defaults, ...(s.settings.defaults || {}) };
+  s.settings.automations ||= {};
+  for (const l of s.loans) { l.transactions ||= []; l.notes ||= []; l.escrow ||= { enabled: false }; }
+  return s;
 }
 
 export const getState = () => state;
@@ -58,6 +83,7 @@ export function loanStates() {
 export const loanState = (id) => loanStates()[id];
 
 export function runAutopay() {
+  if (!ruleOn(state.settings, 'autopay')) return 0;
   const asOf = today();
   let added = 0;
   for (const loan of state.loans) {
@@ -112,7 +138,7 @@ export function importJSON(text) {
   }
   s.version = SCHEMA_VERSION;
   s.dirty = true;
-  state = s;
+  state = normalize(s);
   runAutopay();
   version++;
   persist();

@@ -58,8 +58,10 @@ export function dealFormHTML(deal, { mode = 'app' } = {}) {
       </div>
     </div>` : html`
     <div class="form-section">
-      <h3>Property</h3>
+      <h3>You & the property</h3>
       <div class="form-grid">
+        ${field({ label: 'Selling as', name: 'sellerEntity', type: 'select', value: deal.sellerOverride?.entityType || 'individual', options: [['individual', 'An individual or couple'], ['trust', 'A trust'], ['estate', 'An estate'], ['llc', 'An LLC or company']] })}
+        ${field({ label: 'Other seller-financed sales, last 12 months', name: 'sellerPrior', type: 'select', value: String(deal.sellerOverride?.financedLast12 ?? 0), options: [['0', 'None'], ['1', 'One'], ['2', 'Two'], ['3', 'Three or more']] })}
         ${field({ label: 'Property type', name: 'type', type: 'select', value: p.type, options: Object.entries(PROPERTY_TYPES) })}
         ${field({ label: 'State', name: 'state', type: 'select', value: p.state, options: STATES.map((s) => [s, s]) })}
       </div>
@@ -139,6 +141,7 @@ export function readDealForm(form, base) {
   for (const k of ['beds', 'baths', 'sqft']) if (k in v) p[k] = v[k] === '' ? null : parseNum(v[k], null);
   const deal = { ...base, property: p, terms: t };
   if ('screeningPaidBy' in v) deal.screeningPaidBy = v.screeningPaidBy;
+  if ('sellerEntity' in v) deal.sellerOverride = { entityType: v.sellerEntity, financedLast12: Number(v.sellerPrior) || 0 };
   return deal;
 }
 
@@ -161,7 +164,6 @@ export function dealResultsHTML(deal) {
   const c = compliance(deal);
   const valid = t.salePrice > 0 && m.principal > 0;
   if (!valid) return html`<div class="card"><p class="muted mb-0">Enter a sale price and a down payment under 100% to see the numbers.</p></div>`;
-  const afrLong = s.settings.afr.annual.long;
   return html`
   <div class="result-card">
     <div class="spread"><span class="small" style="color:#9fbcaf;font-weight:600">Buyer’s monthly payment</span>${t.escrow ? html`<span class="badge brand">${ic('shield', { size: 13 })}Escrowed</span>` : ''}</div>
@@ -182,7 +184,7 @@ export function dealResultsHTML(deal) {
       ${m.a.balloonAmount ? html`<div><dt>Balloon due ${fmtDate(m.a.maturity, 'month')}</dt><dd>${money0(m.a.balloonAmount)}</dd></div>` : html`<div><dt>Paid off</dt><dd>${fmtDate(m.a.maturity, 'month')}</dd></div>`}
       <div><dt><strong>Total you collect</strong></dt><dd><strong>${money0(m.totalReceived)}</strong></dd></div>
     </dl>
-    <p class="small muted mt-2 mb-0">Your note earns <strong>${ratePct(t.ratePct)}</strong>, versus the ${afrLong}% long-term AFR (the IRS minimum) and a ${s.settings.market.pmms30}% average 30-year mortgage.</p>
+    <p class="small muted mt-2 mb-0">Your note earns <strong>${ratePct(t.ratePct)}</strong>, versus the ${c.afr.rate}% ${c.afr.bucket}-term AFR (the IRS minimum for this term) and a ${s.settings.market.pmms30}% average 30-year mortgage.</p>
   </div>
   <div class="card">
     <div class="card-head"><div><h2 class="card-title">Balance over time</h2><p class="card-sub">Projected remaining principal${m.a.balloonAmount ? ', with the balloon payoff' : ''}.</p></div></div>

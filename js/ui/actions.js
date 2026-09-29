@@ -49,9 +49,21 @@ export function readForm(root) {
 }
 
 // Show/clear inline validation errors. `errors` maps field name -> message.
+// aria-describedby is a token list; keep help text ids when adding errors.
+function describedBy(el, id, add) {
+  const ids = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter((x) => x && x !== id);
+  if (add) ids.push(id);
+  if (ids.length) el.setAttribute('aria-describedby', ids.join(' ')); else el.removeAttribute('aria-describedby');
+}
+
 export function showErrors(root, errors) {
   root.querySelectorAll('.field.invalid').forEach((f) => f.classList.remove('invalid'));
-  root.querySelectorAll('.error').forEach((p) => { p.hidden = true; p.textContent = ''; });
+  root.querySelectorAll('.error').forEach((p) => {
+    p.hidden = true;
+    p.textContent = '';
+    const input = p.closest('.field') && p.closest('.field').querySelector('input, select, textarea');
+    if (input && p.id) describedBy(input, p.id, false);
+  });
   root.querySelectorAll('[aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid'));
   let first = null;
   for (const [name, msg] of Object.entries(errors)) {
@@ -64,7 +76,7 @@ export function showErrors(root, errors) {
     if (err) {
       err.textContent = msg;
       err.hidden = false;
-      el.setAttribute('aria-describedby', err.id);
+      describedBy(el, err.id, true);
     }
     first ||= el;
   }

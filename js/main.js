@@ -204,7 +204,12 @@ function render(routeChange) {
     content = html`<section class="container section narrow"><h1 tabindex="-1">Something went wrong</h1><p class="lead">${String(err && err.message)}</p><p><a class="btn btn-primary" href="#/app">Back to dashboard</a> <button type="button" class="btn btn-secondary" data-action="reset-demo">Reset demo data</button></p></section>`;
   }
   const layout = LAYOUTS[view.layout || 'marketing'];
-  root.innerHTML = String(layout(content, view, ctx));
+  try {
+    root.innerHTML = String(layout(content, view, ctx));
+  } catch (err) {
+    console.error(err);
+    root.innerHTML = String(html`<main id="main" class="container section narrow" tabindex="-1"><h1>Something went wrong</h1><p class="lead">${String(err && err.message)}</p><p><button type="button" class="btn btn-secondary" data-action="confirm-reset">Reset demo data</button></p></main>`);
+  }
   const title = typeof view.title === 'function' ? view.title(ctx) : view.title;
   document.title = title ? `${title} · SteadyNote` : 'SteadyNote · Seller financing, handled';
   const main = document.getElementById('main');

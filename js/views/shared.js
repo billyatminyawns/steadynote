@@ -22,10 +22,15 @@ export function sellerForCompliance(excludeLoanId = null) {
   return { ...s.profile, financedLast12: financedLast12(excludeLoanId) };
 }
 
+// A first-time individual seller, used by the public calculator unless the
+// visitor tells us otherwise.
+export const NEUTRAL_SELLER = { entityType: 'individual', financedLast12: 0, builder: false, hasMortgage: false };
+
 export function compliance(deal, { atrDone = null } = {}) {
   const s = getState();
   return checkCompliance({
-    seller: sellerForCompliance(),
+    // A deal's own loan doesn't count against its seller-financing limit.
+    seller: deal.sellerOverride ? { ...NEUTRAL_SELLER, ...deal.sellerOverride } : sellerForCompliance(deal.loanId || null),
     property: deal.property,
     occupancy: deal.terms.occupancy || 'owner',
     terms: deal.terms,
@@ -87,12 +92,14 @@ export function propertyFacts(p) {
 // Principal balance over the life of the loan: actual to date, projected after.
 export function balanceSeries(loan, st) {
   const pts = [{ x: loan.terms.closingDate || addDays(loan.terms.firstDue, -45), y: loan.terms.principal, kind: 'start' }];
-  for (const p of st.paid) pts.push({ x: p.paidDate < p.due && p.boarded ? p.due : p.due, y: p.balanceAfter, kind: 'paid', inst: p });
+  for (const p of st.paid) pts.push({ x: p.due, y: p.balanceAfter, kind: 'paid', inst: p });
   let b = st.principalBalance;
   for (const m of st.unpaid) {
     b -= m.principal;
     pts.push({ x: m.due, y: Math.max(0, b), kind: 'projected', inst: m });
   }
+  // Paid off early (payoff or extra principal): the line ends at zero that day.
+  if (st.paidOffDate && !pts.some((p) => p.x === st.paidOffDate && p.y === 0)) pts.push({ x: st.paidOffDate, y: 0, kind: 'paid' });
   pts.sort((a, b2) => (a.x < b2.x ? -1 : a.x > b2.x ? 1 : 0));
   return pts;
 }

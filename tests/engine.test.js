@@ -1,6 +1,6 @@
 // Engine tests. Run: ./tests/run.sh  (uses macOS JavaScriptCore, no Node needed)
 import { pmt, amortize, aprPct, principalForPayment, presentValue, yieldForPrice } from '../js/core/finance.js';
-import { computeLoan, payoffQuote, pendingAutopay, withTransactions, previewTransaction, lateFeeFor, escrowAnalysis } from '../js/core/servicing.js';
+import { computeLoan, payoffQuote, payoffQuoteOn, pendingAutopay, withTransactions, previewTransaction, lateFeeFor, escrowAnalysis } from '../js/core/servicing.js';
 import { addMonths, addDays, daysBetween, roundDiv, money } from '../js/core/util.js';
 
 const log = typeof print === 'function' ? print : console.log;
@@ -205,6 +205,45 @@ const sched = amortize({ principal: 20000000, ratePct: 6, amortMonths: 360, firs
   eq('escrow annual', ea.annual, 480000);
   eq('escrow cushion', ea.cushion, 80000);
   ok('escrow months 12', ea.months.length === 12);
+}
+
+{
+  // Extra paid on the due date goes to principal (not stuck in suspense)
+  const L = baseLoan();
+  L.transactions.push({ id: 'a', type: 'payment', date: '2026-01-01', amount: 159910 + 50000 });
+  let st = computeLoan(L, '2026-01-02');
+  eq('due-date extra -> principal', st.principalBalance, sched.rows[0].balance - 50000);
+  eq('due-date extra no suspense', st.suspense, 0);
+  L.autopay = { enabled: true, since: '2026-02-01' };
+  st = computeLoan(withTransactions(L, pendingAutopay(L, '2026-06-15')), '2026-06-15');
+  eq('no suspense after drafts', st.suspense, 0);
+}
+{
+  // A principal-only payment leaves an earlier partial payment in suspense
+  const L = baseLoan();
+  L.transactions.push({ id: 'p', type: 'payment', date: '2025-12-20', amount: 100000 });
+  L.transactions.push({ id: 'x', type: 'payment', date: '2025-12-20', amount: 5000, applyTo: 'principal' });
+  const st = computeLoan(L, '2025-12-21');
+  eq('suspense kept', st.suspense, 100000);
+  eq('only extra to principal', st.principalBalance, 20000000 - 5000);
+}
+{
+  // Boarded history respects the as-of date
+  const L = baseLoan();
+  L.terms.boardedPaid = 13;
+  L.escrow = { enabled: false };
+  eq('boarded as of 2026-06-15', computeLoan(L, '2026-06-15').paidCount, 6);
+  eq('boarded balance at 2026 year end', computeLoan(L, '2026-12-31').principalBalance, sched.rows[11].balance);
+}
+{
+  // Payoff quoted for a date past the next grace period includes the late charge
+  const L = baseLoan();
+  L.transactions.push({ id: 'a', type: 'payment', date: '2026-01-01', amount: 159910 });
+  const q = payoffQuoteOn(L, '2026-02-25', '2026-01-10');
+  eq('future payoff includes late charge', q.fees, 5996);
+  const L2 = withTransactions(L, [{ id: 'po', type: 'payment', date: '2026-02-25', amount: q.total, applyTo: 'payoff' }]);
+  const st2 = computeLoan(L2, '2026-02-26');
+  eq('future payoff clears everything', [st2.status, st2.feesOutstanding, st2.credit], ['paid_off', 0, 0]);
 }
 
 log(`\n${passed} passed, ${failed} failed`);
