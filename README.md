@@ -39,7 +39,7 @@ Run locally:
 
 ```bash
 python3 server.py            # http://localhost:8650
-sh tests/run.sh              # 229 engine and seed checks (macOS)
+sh tests/run.sh              # engine and seed checks (macOS JavaScriptCore)
 ```
 
 The servicing engine (`js/core/servicing.js`) is deterministic. It replays a loan's transactions against its contractual schedule to derive balances, installment status, fees, escrow, suspense and delinquency as of any date. Money is integer cents throughout.
